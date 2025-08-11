@@ -1,0 +1,248 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main, develop ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  GO_VERSION: '1.21'
+  GO_MODULE_PATH: './local-k8s-cluster-go'
+  BINARY_NAME: 'k3s-manager'
+
+jobs:
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+        
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      working-directory: ${{ env.GO_MODULE_PATH }}
+      run: go mod download
+
+    - name: Run tests
+      working-directory: ${{ env.GO_MODULE_PATH }}
+      run: go test -v -race -coverprofile=coverage.out ./...
+
+    - name: Upload coverage reports
+      uses: codecov/codecov-action@v3
+      with:
+        files: ${{ env.GO_MODULE_PATH }}/coverage.out
+        flags: unittests
+        name: codecov-umbrella
+
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Run golangci-lint
+      uses: golangci/golangci-lint-action@v3
+      with:
+        version: latest
+        working-directory: ${{ env.GO_MODULE_PATH }}
+        args: --timeout=5m
+
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    strategy:
+      matrix:
+        goos: [linux, darwin, windows]
+        goarch: [amd64, arm64]
+        exclude:
+          # Windows ARM64 builds are not commonly used
+          - goos: windows
+            goarch: arm64
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v4
+      with:
+        go-version: ${{ env.GO_VERSION }}
+
+    - name: Cache Go modules
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cache/go-build
+          ~/go/pkg/mod
+        key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+        restore-keys: |
+          ${{ runner.os }}-go-
+
+    - name: Download dependencies
+      working-directory: ${{ env.GO_MODULE_PATH }}
+      run: go mod download
+
+    - name: Build binary
+      working-directory: ${{ env.GO_MODULE_PATH }}
+      env:
+        GOOS: ${{ matrix.goos }}
+        GOARCH: ${{ matrix.goarch }}
+      run: |
+        if [ "$GOOS" = "windows" ]; then
+          BINARY_NAME="${BINARY_NAME}.exe"
+        fi
+        
+        go build -ldflags="-s -w" -o "bin/${BINARY_NAME}-${GOOS}-${GOARCH}${BINARY_NAME##*${BINARY_NAME}}" ./cmd
+        
+        # Create archive
+        cd bin
+        if [ "$GOOS" = "windows" ]; then
+          zip "${BINARY_NAME}-${GOOS}-${GOARCH}.zip" "${BINARY_NAME}-${GOOS}-${GOARCH}.exe"
+        else
+          tar -czf "${BINARY_NAME}-${GOOS}-${GOARCH}.tar.gz" "${BINARY_NAME}-${GOOS}-${GOARCH}"
+        fi
+
+    - name: Upload build artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ env.BINARY_NAME }}-${{ matrix.goos }}-${{ matrix.goarch }}
+        path: ${{ env.GO_MODULE_PATH }}/bin/*
+
+  release:
+    name: Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    needs: [build]
+    permissions:
+      contents: write
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Download all artifacts
+      uses: actions/download-artifact@v3
+      with:
+        path: artifacts
+
+    - name: Prepare release assets
+      run: |
+        mkdir -p release
+        find artifacts -name "*.tar.gz" -o -name "*.zip" | xargs -I {} cp {} release/
+        ls -la release/
+
+    - name: Extract release notes
+      id: extract-notes
+      run: |
+        # Extract version from tag
+        VERSION=${GITHUB_REF#refs/tags/}
+        echo "version=$VERSION" >> $GITHUB_OUTPUT
+        
+        # Create release notes (customize as needed)
+        cat > release-notes.md << EOF
+        ## K3s Manager $VERSION
+        
+        ### Features
+        - Cross-platform binary for Linux, macOS, and Windows
+        - K3s cluster management and monitoring
+        - Application deployment and lifecycle management
+        - Infrastructure setup automation
+        
+        ### Installation
+        
+        Download the appropriate binary for your platform:
+        - **Linux**: \`k3s-manager-linux-amd64.tar.gz\`
+        - **macOS**: \`k3s-manager-darwin-amd64.tar.gz\` (Intel) or \`k3s-manager-darwin-arm64.tar.gz\` (Apple Silicon)
+        - **Windows**: \`k3s-manager-windows-amd64.zip\`
+        
+        Extract and run:
+        \`\`\`bash
+        # Linux/macOS example
+        tar -xzf k3s-manager-linux-amd64.tar.gz
+        ./k3s-manager-linux-amd64 --help
+        \`\`\`
+        
+        ### Usage
+        \`\`\`bash
+        # Check cluster status
+        k3s-manager cluster status
+        
+        # Deploy application
+        k3s-manager apps deploy my-app
+        
+        # Setup K3s server
+        k3s-manager setup server
+        \`\`\`
+        EOF
+
+    - name: Create Release
+      uses: softprops/action-gh-release@v1
+      with:
+        tag_name: ${{ steps.extract-notes.outputs.version }}
+        name: K3s Manager ${{ steps.extract-notes.outputs.version }}
+        body_path: release-notes.md
+        files: release/*
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  docker:
+    name: Build Docker Image
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ubuntu-latest
+    needs: [test, lint]
+    
+    steps:
+    - uses: actions/checkout@v4
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to GitHub Container Registry
+      uses: docker/login-action@v3
+      with:
+        registry: ghcr.io
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ghcr.io/${{ github.repository }}/k3s-manager
+        tags: |
+          type=ref,event=branch
+          type=semver,pattern={{version}}
+          type=semver,pattern={{major}}.{{minor}}
+          type=semver,pattern={{major}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: ${{ env.GO_MODULE_PATH }}
+        push: true
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        platforms: linux/amd64,linux/arm64
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
