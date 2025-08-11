@@ -57,26 +57,35 @@ This document tracks architectural and technical decisions made for the local Ku
 2. **Phase 2**: Add Helm, monitoring, GitOps with ArgoCD
 3. **Phase 3**: Advanced security, multi-environment support
 
-### Decision: K3d as K3s Implementation
+### Decision: Hybrid K3s Deployment Strategy
 **Status**: Accepted  
-**Context**: Need to choose specific K3s implementation method for macOS development.
+**Context**: Need to choose K3s implementation for both development and production deployment.
 
-**Decision**: Use k3d (K3s in Docker) as the primary K3s implementation.
+**Decision**: Use hybrid approach - k3d for development, native K3s for Linux server.
+
+**Production (Linux Server)**:
+- **Native K3s**: Direct installation on Linux for maximum efficiency
+- **Resource optimization**: ~50% less overhead without Docker layer
+- **Performance**: Direct kernel access, better I/O and networking
+- **Production-ready**: systemd integration, native filesystem
+
+**Development (macOS)**:
+- **k3d**: K3s in Docker for local development and testing
+- **Compatibility**: Same K3s version for dev/prod parity
+- **Convenience**: Fast cluster creation/destruction for iteration
+
+**Target Scale**: 5-25 applications running simultaneously on Linux server.
 
 **Rationale**:
-- Native macOS support (K3s needs Linux, k3d runs in Docker)
-- Fast cluster creation/destruction (seconds vs minutes)
-- Multi-node cluster support for testing
-- Port mapping for ingress/load balancer access
-- Easier GitHub Actions integration
-- Docker ecosystem familiarity
-
-**Target Scale**: 5-25 applications running simultaneously on local cluster.
+- Linux server provides superior resource efficiency for production workloads
+- Development/production parity maintained through same K3s distribution
+- Optimal resource utilization on target deployment platform
+- Native Linux performance benefits for multi-application hosting
 
 **Alternatives Considered**:
-- Multipass + K3s: More resource overhead, VM management complexity
-- Rancher Desktop: GUI overhead, less automation-friendly
-- Native K3s: Requires Linux VM on macOS
+- k3d everywhere: Docker overhead not optimal for production
+- Native K3s on macOS: Requires VM, defeats efficiency purpose
+- Different K8s distributions: Breaks dev/prod parity
 
 ### Decision: Skip Traditional Configuration Management Tools
 **Status**: Accepted  

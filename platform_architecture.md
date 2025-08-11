@@ -7,20 +7,35 @@ Local Kubernetes platform designed for running 5-25 applications with enterprise
 
 ### Kubernetes Layer
 ```
+Production (Linux Server):
 ┌─────────────────────────────────────────┐
-│              k3d Cluster                │
+│            Native K3s Cluster           │
 │  ┌─────────┐ ┌─────────┐ ┌─────────┐    │
 │  │ Master  │ │ Worker1 │ │ Worker2 │    │
 │  │  Node   │ │  Node   │ │  Node   │    │
 │  └─────────┘ └─────────┘ └─────────┘    │
 └─────────────────────────────────────────┘
+
+Development (macOS):
+┌─────────────────────────────────────────┐
+│              k3d Cluster                │
+│  ┌─────────┐ ┌─────────┐                │
+│  │ Master  │ │ Worker1 │                │
+│  │  Node   │ │  Node   │                │
+│  └─────────┘ └─────────┘                │
+└─────────────────────────────────────────┘
 ```
 
-**Components**:
-- **k3d**: 3-node cluster (1 master, 2 workers)
+**Production Components (Linux)**:
+- **Native K3s**: Direct systemd integration, maximum efficiency
 - **Traefik**: Built-in ingress controller
 - **CoreDNS**: Service discovery
-- **Local Storage**: Persistent volumes
+- **Local Storage**: Native filesystem performance
+
+**Development Components (macOS)**:
+- **k3d**: K3s in Docker for local development
+- **Same K3s version**: Maintain dev/prod parity
+- **Port forwarding**: Easy local access
 
 ### Namespace Architecture
 ```
@@ -223,17 +238,23 @@ Triggers: [push, PR, schedule]
 
 ### Cluster Resources
 ```
-Total Resources (Recommended):
-├── CPU: 8 cores
-├── Memory: 16GB RAM  
-├── Storage: 100GB SSD
-└── Network: 1Gbps local
+Linux Server (Production):
+├── CPU: 8-16 cores (native performance)
+├── Memory: 16-32GB RAM (no Docker overhead)
+├── Storage: 200GB+ SSD (native filesystem)
+└── Network: 1Gbps+ (direct kernel networking)
+
+macOS Development:
+├── CPU: 4-8 cores (Docker overhead acceptable)
+├── Memory: 8-16GB RAM (sufficient for development)
+├── Storage: 50GB SSD (smaller dev datasets)
+└── Network: Local development networking
 
 Per Application Average:
-├── CPU: 100m-500m
-├── Memory: 128Mi-512Mi
-├── Storage: 1Gi-10Gi
-└── Replicas: 1-3
+├── CPU: 100m-500m (more efficient on native Linux)
+├── Memory: 128Mi-512Mi (better memory management)
+├── Storage: 1Gi-10Gi (native filesystem performance)
+└── Replicas: 1-3 (higher density possible on Linux)
 ```
 
 ### Auto-scaling Strategy
