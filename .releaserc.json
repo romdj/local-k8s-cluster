@@ -20,10 +20,7 @@
           {"type": "style", "release": false},
           {"type": "test", "release": false},
           {"scope": "no-release", "release": false}
-        ],
-        "parserOpts": {
-          "noteKeywords": ["BREAKING CHANGE", "BREAKING CHANGES", "BREAKING"]
-        }
+        ]
       }
     ],
     [
@@ -64,29 +61,14 @@
       {
         "assets": [
           {
-            "path": "local-k8s-cluster-go/bin/k3s-manager-linux-amd64.tar.gz",
-            "label": "k3s-manager Linux AMD64"
+            "path": "artifacts/*.tar.gz",
+            "label": "Linux and macOS binaries"
           },
           {
-            "path": "local-k8s-cluster-go/bin/k3s-manager-linux-arm64.tar.gz",
-            "label": "k3s-manager Linux ARM64"
-          },
-          {
-            "path": "local-k8s-cluster-go/bin/k3s-manager-darwin-amd64.tar.gz",
-            "label": "k3s-manager macOS AMD64"
-          },
-          {
-            "path": "local-k8s-cluster-go/bin/k3s-manager-darwin-arm64.tar.gz",
-            "label": "k3s-manager macOS ARM64 (Apple Silicon)"
-          },
-          {
-            "path": "local-k8s-cluster-go/bin/k3s-manager-windows-amd64.zip",
-            "label": "k3s-manager Windows AMD64"
+            "path": "artifacts/*.zip", 
+            "label": "Windows binaries"
           }
-        ],
-        "successComment": "🎉 This PR is included in version ${nextRelease.version} which has just been released on [GitHub Releases](${releases[0].url})! 🎉",
-        "failComment": "❌ The release from branch `main` had failed due to the following errors:\n- ${errors.map(err => err.message).join('\\n- ')}",
-        "releasedLabels": ["released"]
+        ]
       }
     ],
     [

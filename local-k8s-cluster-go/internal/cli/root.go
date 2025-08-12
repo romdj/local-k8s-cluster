@@ -16,7 +16,7 @@ var (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "k3s-manager",
-	Short: "A modern Go-based K3s cluster management tool",  
+	Short: "A modern Go-based K3s cluster management tool",
 	Long: `k3s-manager provides a modern, type-safe way to manage your K3s cluster infrastructure.
 	
 Built with Go, it offers:
@@ -38,7 +38,7 @@ func init() {
 	// Global flags
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "config file (default is $HOME/.k3s-manager.yaml)")
 	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
-	
+
 	// Bind flags to viper
 	if err := viper.BindPFlag("verbose", rootCmd.PersistentFlags().Lookup("verbose")); err != nil {
 		fmt.Fprintf(os.Stderr, "Error binding verbose flag: %v\n", err)

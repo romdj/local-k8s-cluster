@@ -10,7 +10,7 @@ import (
 	"time"
 
 	"github.com/romdj/local-k8s-cluster-go/internal/k8s"
-	
+
 	appsv1 "k8s.io/api/apps/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -35,24 +35,24 @@ type Deployment struct {
 
 // Application represents a deployed application
 type Application struct {
-	Name           string
-	Namespace      string
-	ReadyReplicas  int32
-	TotalReplicas  int32
-	Image          string
-	Status         string
+	Name          string
+	Namespace     string
+	ReadyReplicas int32
+	TotalReplicas int32
+	Image         string
+	Status        string
 }
 
 // ApplicationStatus contains detailed application status
 type ApplicationStatus struct {
-	Name           string
-	Namespace      string
-	Phase          string
-	ReadyReplicas  int32
-	TotalReplicas  int32
-	Image          string
-	CreatedAt      time.Time
-	Conditions     []Condition
+	Conditions    []Condition
+	CreatedAt     time.Time
+	Name          string
+	Namespace     string
+	Phase         string
+	Image         string
+	ReadyReplicas int32
+	TotalReplicas int32
 }
 
 // Condition represents a deployment condition
@@ -93,7 +93,7 @@ func (m *Manager) Deploy(ctx context.Context, deployment *Deployment) error {
 		}
 
 		fmt.Printf("Applying %s/%s...\n", manifest.GetKind(), manifest.GetName())
-		
+
 		// Here you would apply the manifest using dynamic client
 		// This is a simplified version
 	}
@@ -166,16 +166,17 @@ func (m *Manager) GetStatus(ctx context.Context, name, namespace string) (*Appli
 // readManifests reads YAML manifests from a directory
 func (m *Manager) readManifests(manifestPath string) ([]*unstructured.Unstructured, error) {
 	var manifests []*unstructured.Unstructured
-	
+
 	err := filepath.Walk(manifestPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
-		
+
 		if filepath.Ext(path) != ".yaml" && filepath.Ext(path) != ".yml" {
 			return nil
 		}
 
+		// #nosec G304 -- manifestPath is controlled by the application
 		content, err := os.ReadFile(path)
 		if err != nil {
 			return fmt.Errorf("failed to read file %s: %w", path, err)
@@ -191,7 +192,7 @@ func (m *Manager) readManifests(manifestPath string) ([]*unstructured.Unstructur
 				}
 				return fmt.Errorf("failed to decode YAML in %s: %w", path, err)
 			}
-			
+
 			if manifest.Object != nil {
 				manifests = append(manifests, &manifest)
 			}
@@ -208,7 +209,7 @@ func (m *Manager) getDeploymentStatus(deployment *appsv1.Deployment) string {
 	if deployment.Status.ReadyReplicas == *deployment.Spec.Replicas {
 		return "Ready"
 	}
-	
+
 	for _, condition := range deployment.Status.Conditions {
 		if condition.Type == appsv1.DeploymentProgressing {
 			if condition.Status == v1.ConditionFalse {
@@ -219,10 +220,10 @@ func (m *Manager) getDeploymentStatus(deployment *appsv1.Deployment) string {
 			}
 		}
 	}
-	
+
 	if deployment.Status.ReadyReplicas > 0 {
 		return "Degraded"
 	}
-	
+
 	return "Pending"
 }

@@ -23,21 +23,21 @@ type Client struct {
 
 // ClusterStatus represents the current state of the cluster
 type ClusterStatus struct {
+	UnhealthyPods []PodInfo
 	Status        string
 	ReadyNodes    int
 	TotalNodes    int
 	RunningPods   int
 	TotalPods     int
 	Namespaces    int
-	UnhealthyPods []PodInfo
 }
 
 // ClusterInfo contains detailed cluster information
 type ClusterInfo struct {
+	Nodes     []NodeInfo
 	Version   string
 	Platform  string
 	APIServer string
-	Nodes     []NodeInfo
 }
 
 // NodeInfo represents node details
