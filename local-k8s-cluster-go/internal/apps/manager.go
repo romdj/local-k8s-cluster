@@ -1,8 +1,10 @@
 package apps
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"time"
@@ -13,9 +15,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/apimachinery/pkg/runtime/serializer/yaml"
-	"k8s.io/apimachinery/pkg/util/yaml as utilyaml"
-	"k8s.io/client-go/dynamic"
+	utilyaml "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/kubernetes"
 )
 
@@ -23,7 +23,6 @@ import (
 type Manager struct {
 	client    *k8s.Client
 	clientset kubernetes.Interface
-	dynamic   dynamic.Interface
 }
 
 // Deployment represents an application deployment

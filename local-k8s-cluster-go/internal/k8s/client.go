@@ -109,9 +109,10 @@ func (c *Client) GetClusterStatus(ctx context.Context) (*ClusterStatus, error) {
 
 	status.TotalPods = len(pods.Items)
 	for _, pod := range pods.Items {
-		if pod.Status.Phase == v1.PodRunning {
+		switch pod.Status.Phase {
+		case v1.PodRunning:
 			status.RunningPods++
-		} else if pod.Status.Phase == v1.PodFailed || pod.Status.Phase == v1.PodPending {
+		case v1.PodFailed, v1.PodPending:
 			status.UnhealthyPods = append(status.UnhealthyPods, PodInfo{
 				Name:      pod.Name,
 				Namespace: pod.Namespace,
