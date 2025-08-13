@@ -27,18 +27,18 @@ type Manager struct {
 
 // Deployment represents an application deployment
 type Deployment struct {
+	DryRun       bool
 	Name         string
 	Namespace    string
 	ManifestPath string
-	DryRun       bool
 }
 
 // Application represents a deployed application
 type Application struct {
-	Name          string
-	Namespace     string
 	ReadyReplicas int32
 	TotalReplicas int32
+	Name          string
+	Namespace     string
 	Image         string
 	Status        string
 }

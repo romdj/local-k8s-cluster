@@ -61,11 +61,11 @@
       {
         "assets": [
           {
-            "path": "artifacts/*.tar.gz",
+            "path": "release-assets/*.tar.gz",
             "label": "Linux and macOS binaries"
           },
           {
-            "path": "artifacts/*.zip", 
+            "path": "release-assets/*.zip", 
             "label": "Windows binaries"
           }
         ]

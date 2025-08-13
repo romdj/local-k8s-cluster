@@ -1,4 +1,4 @@
-name: Build, Test, and Release
+name: CI/CD Pipeline
 
 on:
   push:
@@ -10,6 +10,7 @@ env:
   GO_VERSION: '1.24'
   GO_MODULE_PATH: './local-k8s-cluster-go'
   BINARY_NAME: 'k3s-manager'
+  REGISTRY: 'ghcr.io'
 
 permissions:
   contents: write
@@ -18,13 +19,11 @@ permissions:
   packages: write
 
 jobs:
-  test-and-build:
-    name: Test, Lint, and Build
+  # Step 1: Quality Checks (Fast Feedback)
+  quality:
+    name: Code Quality & Tests
     runs-on: ubuntu-latest
     
-    outputs:
-      should-release: ${{ steps.check-release.outputs.should-release }}
-      
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -37,7 +36,7 @@ jobs:
           go-version: ${{ env.GO_VERSION }}
 
       - name: Cache Go modules
-        uses: actions/cache@v3
+        uses: actions/cache@v4
         with:
           path: |
             ~/.cache/go-build
@@ -50,12 +49,12 @@ jobs:
         working-directory: ${{ env.GO_MODULE_PATH }}
         run: go mod download && go mod verify
 
-      - name: Run tests
+      - name: Run tests with coverage
         working-directory: ${{ env.GO_MODULE_PATH }}
         run: go test -v -race -coverprofile=coverage.out ./...
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v3
+      - name: Upload coverage
+        uses: codecov/codecov-action@v4
         with:
           files: ${{ env.GO_MODULE_PATH }}/coverage.out
           flags: unittests
@@ -65,73 +64,144 @@ jobs:
         run: go vet ./...
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6
         with:
           version: latest
           working-directory: ${{ env.GO_MODULE_PATH }}
-          args: --timeout=5m
+          args: --timeout=5m --out-format=colored-line-number
 
-      - name: Build multi-platform binaries
+  # Step 2: Multi-Platform Builds
+  build:
+    name: Build Binaries
+    runs-on: ubuntu-latest
+    needs: quality
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v4
+        with:
+          go-version: ${{ env.GO_VERSION }}
+
+      - name: Cache Go modules
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/go-build
+            ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+      - name: Download dependencies
+        working-directory: ${{ env.GO_MODULE_PATH }}
+        run: go mod download
+
+      - name: Build binary
+        working-directory: ${{ env.GO_MODULE_PATH }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          mkdir -p dist
+          
+          if [ "$GOOS" = "windows" ]; then
+            BINARY_NAME_WITH_EXT="${BINARY_NAME}.exe"
+          else
+            BINARY_NAME_WITH_EXT="${BINARY_NAME}"
+          fi
+          
+          echo "Building ${BINARY_NAME} for ${GOOS}/${GOARCH}..."
+          go build -ldflags="-s -w -X main.version=${GITHUB_SHA::8}" \
+            -o "dist/${BINARY_NAME}-${GOOS}-${GOARCH}${BINARY_NAME_WITH_EXT##*${BINARY_NAME}}" \
+            ./cmd
+
+      - name: Create archive
         working-directory: ${{ env.GO_MODULE_PATH }}
         run: |
-          # Create bin directory
-          mkdir -p bin
-          
-          # Build for multiple platforms
-          platforms=("linux/amd64" "linux/arm64" "darwin/amd64" "darwin/arm64" "windows/amd64")
-          
-          for platform in "${platforms[@]}"; do
-            export GOOS=${platform%/*}
-            export GOARCH=${platform#*/}
-            
-            echo "Building for $GOOS/$GOARCH..."
-            
-            if [ "$GOOS" = "windows" ]; then
-              BINARY_NAME_WITH_EXT="${BINARY_NAME}.exe"
-            else
-              BINARY_NAME_WITH_EXT="${BINARY_NAME}"
-            fi
-            
-            go build -ldflags="-s -w" -o "bin/${BINARY_NAME}-${GOOS}-${GOARCH}${BINARY_NAME_WITH_EXT##*${BINARY_NAME}}" ./cmd
-            
-            # Create archives
-            cd bin
-            if [ "$GOOS" = "windows" ]; then
-              zip "${BINARY_NAME}-${GOOS}-${GOARCH}.zip" "${BINARY_NAME}-${GOOS}-${GOARCH}.exe"
-            else
-              tar -czf "${BINARY_NAME}-${GOOS}-${GOARCH}.tar.gz" "${BINARY_NAME}-${GOOS}-${GOARCH}"
-            fi
-            cd ..
-          done
-          
-          ls -la bin/
-
-      - name: Upload build artifacts
-        uses: actions/upload-artifact@v3
-        with:
-          name: binaries
-          path: ${{ env.GO_MODULE_PATH }}/bin/*.tar.gz
-          
-      - name: Upload build artifacts (Windows)
-        uses: actions/upload-artifact@v3
-        with:
-          name: binaries-windows
-          path: ${{ env.GO_MODULE_PATH }}/bin/*.zip
-
-      - name: Check if should release
-        id: check-release
-        run: |
-          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == "refs/heads/main" ]]; then
-            echo "should-release=true" >> $GITHUB_OUTPUT
+          cd dist
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            zip "${BINARY_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}.zip" \
+                "${BINARY_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}.exe"
           else
-            echo "should-release=false" >> $GITHUB_OUTPUT
+            tar -czf "${BINARY_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}.tar.gz" \
+                     "${BINARY_NAME}-${{ matrix.goos }}-${{ matrix.goarch }}"
           fi
 
-  release:
-    name: Semantic Release
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            ${{ env.GO_MODULE_PATH }}/dist/*.tar.gz
+            ${{ env.GO_MODULE_PATH }}/dist/*.zip
+          retention-days: 7
+
+  # Step 3: Container Build
+  container:
+    name: Build Container Image
     runs-on: ubuntu-latest
-    needs: test-and-build
-    if: needs.test-and-build.outputs.should-release == 'true'
+    needs: quality
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ github.repository }}/${{ env.BINARY_NAME }}
+          tags: |
+            type=ref,event=branch
+            type=sha,prefix={{branch}}-
+            type=raw,value=latest,enable={{is_default_branch}}
+
+      - name: Build and push
+        uses: docker/build-push-action@v5
+        with:
+          context: ${{ env.GO_MODULE_PATH }}
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          build-args: |
+            VERSION=${{ github.sha }}
+
+  # Step 4: Release (Only on main branch pushes)
+  release:
+    name: Create Release
+    runs-on: ubuntu-latest
+    needs: [build, container]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
       - name: Checkout
@@ -145,69 +215,61 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install semantic-release dependencies
+      - name: Install semantic-release
         run: |
-          npm install -g semantic-release@23
+          npm install -g semantic-release@24
           npm install -g @semantic-release/changelog@6
           npm install -g @semantic-release/git@10
           npm install -g @semantic-release/github@9
           npm install -g @semantic-release/exec@6
-          npm install -g conventional-changelog-conventionalcommits@7
+          npm install -g conventional-changelog-conventionalcommits@8
 
-      - name: Download build artifacts
-        uses: actions/download-artifact@v3
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: binaries
           path: artifacts/
+          pattern: binary-*
+          merge-multiple: true
 
-      - name: Download Windows artifacts
-        uses: actions/download-artifact@v3
-        with:
-          name: binaries-windows
-          path: artifacts/
-
-      - name: List artifacts
-        run: ls -la artifacts/
+      - name: Prepare release assets
+        run: |
+          echo "Release artifacts:"
+          find artifacts -name "*.tar.gz" -o -name "*.zip" | sort
+          
+          # Flatten directory structure for release
+          mkdir -p release-assets
+          find artifacts -name "*.tar.gz" -o -name "*.zip" -exec cp {} release-assets/ \;
+          ls -la release-assets/
 
       - name: Run semantic-release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: semantic-release
 
-  docker:
-    name: Build and Push Docker Image
+  # Step 5: Deployment Notification (Optional)
+  notify:
+    name: Notify Deployment
     runs-on: ubuntu-latest
-    needs: [test-and-build, release]
-    if: needs.test-and-build.outputs.should-release == 'true'
+    needs: [release]
+    if: always() && github.event_name == 'push' && github.ref == 'refs/heads/main'
     
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Extract version
-        id: version
+      - name: Deployment Summary
         run: |
-          VERSION=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.0")
-          echo "version=${VERSION}" >> $GITHUB_OUTPUT
-
-      - name: Build and push Docker image
-        uses: docker/build-push-action@v5
-        with:
-          context: ${{ env.GO_MODULE_PATH }}
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository }}/${{ env.BINARY_NAME }}:${{ steps.version.outputs.version }}
-            ghcr.io/${{ github.repository }}/${{ env.BINARY_NAME }}:latest
-          platforms: linux/amd64,linux/arm64
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          echo "## 🚀 Deployment Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ needs.release.result }}" = "success" ]; then
+            echo "✅ **Release Created Successfully**" >> $GITHUB_STEP_SUMMARY
+            echo "- 🏗️ Multi-platform binaries built" >> $GITHUB_STEP_SUMMARY  
+            echo "- 🐳 Container images published" >> $GITHUB_STEP_SUMMARY
+            echo "- 📦 GitHub release created" >> $GITHUB_STEP_SUMMARY
+            echo "- 📝 Changelog updated" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "❌ **Release Failed**" >> $GITHUB_STEP_SUMMARY
+            echo "Check the logs above for details" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "**Commit:** \`${GITHUB_SHA::8}\`" >> $GITHUB_STEP_SUMMARY
+          echo "**Branch:** \`${GITHUB_REF_NAME}\`" >> $GITHUB_STEP_SUMMARY
